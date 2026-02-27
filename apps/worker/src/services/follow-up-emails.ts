@@ -170,11 +170,22 @@ async function sendAndRecord(
 ): Promise<void> {
 	const { subject, text } = getEmailContent(emailType);
 
-	await db.insert(followUpEmail).values({
-		organizationId,
-		emailType,
-		sentTo: recipientEmail,
-	});
+	const result = await db
+		.insert(followUpEmail)
+		.values({
+			organizationId,
+			emailType,
+			sentTo: recipientEmail,
+		})
+		.onConflictDoNothing();
+
+	if (result.rowCount === 0) {
+		logger.info("Follow-up email already sent, skipping", {
+			emailType,
+			organizationId,
+		});
+		return;
+	}
 
 	if (process.env.EMAIL_FOLLOW_UPS === "true") {
 		await sendFollowUpEmail({ to: recipientEmail, subject, text });
