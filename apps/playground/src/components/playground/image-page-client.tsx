@@ -85,11 +85,19 @@ export default function ImagePageClient({
 		{ dataUrl: string; mediaType: string }[]
 	>([]);
 
-	// Detect if the primary selected model is an image-edit model
+	// Detect if the primary selected model supports image input (editing)
 	const isEditModel = useMemo(() => {
 		const primary = selectedModels[0] ?? "";
-		return primary.includes("image-edit");
-	}, [selectedModels]);
+		const model = imageGenModels.find((m) => m.id === primary);
+		if (!model) {
+			return false;
+		}
+		return model.mappings.some(
+			(mapping) =>
+				mapping.imageInputPrice !== null &&
+				mapping.imageInputPrice !== undefined,
+		);
+	}, [selectedModels, imageGenModels]);
 
 	// Auth
 	const isAuthenticated = !isUserLoading && !!user;
@@ -155,10 +163,16 @@ export default function ImagePageClient({
 		if (!config.availableSizes.includes(imageSize as never)) {
 			setImageSize(config.defaultSize);
 		}
-		if (!primaryModel.includes("image-edit")) {
+		const model = imageGenModels.find((m) => m.id === primaryModel);
+		const supportsImageInput = model?.mappings.some(
+			(mapping) =>
+				mapping.imageInputPrice !== null &&
+				mapping.imageInputPrice !== undefined,
+		);
+		if (!supportsImageInput) {
 			setInputImages([]);
 		}
-	}, [selectedModels, imageSize]);
+	}, [selectedModels, imageSize, imageGenModels]);
 
 	const getModelName = useCallback(
 		(modelId: string) => {
