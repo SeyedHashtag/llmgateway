@@ -272,6 +272,8 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				// Canopywave has been intermittently unavailable for this model in E2E.
+				stability: "unstable",
 				providerId: "canopywave",
 				modelName: "zai/glm-4.7",
 				inputPrice: 0.43 / 1e6,
