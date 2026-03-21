@@ -17,7 +17,11 @@ import {
 import { isCodingModel } from "@/lib/coding-models.js";
 import { calculateCosts, shouldBillCancelledRequests } from "@/lib/costs.js";
 import { throwIamException, validateModelAccess } from "@/lib/iam.js";
-import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import {
+	calculateDataStorageCost,
+	getUnifiedFinishReason,
+	insertLog,
+} from "@/lib/logs.js";
 import {
 	createCombinedSignal,
 	createStreamingCombinedSignal,
@@ -88,6 +92,7 @@ import { healJsonResponse } from "./tools/heal-json-response.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
 import { messagesContainImages } from "./tools/messages-contain-images.js";
 import { mightBeCompleteJson } from "./tools/might-be-complete-json.js";
+import { normalizeStreamingError } from "./tools/normalize-streaming-error.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
@@ -2491,6 +2496,10 @@ chat.openapi(completions, async (c) => {
 								requestedProvider,
 								usedModel,
 								initialRequestedModel,
+								unifiedFinishReason: getUnifiedFinishReason(
+									"upstream_error",
+									usedProvider,
+								),
 							});
 
 							// Log the timeout error in the database
@@ -2768,6 +2777,10 @@ chat.openapi(completions, async (c) => {
 								requestedProvider,
 								usedModel,
 								initialRequestedModel,
+								unifiedFinishReason: getUnifiedFinishReason(
+									"upstream_error",
+									usedProvider,
+								),
 							});
 
 							// Log the error in the database
@@ -2929,6 +2942,10 @@ chat.openapi(completions, async (c) => {
 								organizationId: project.organizationId,
 								projectId: apiKey.projectId,
 								apiKeyId: apiKey.id,
+								unifiedFinishReason: getUnifiedFinishReason(
+									finishReason,
+									usedProvider,
+								),
 							});
 						}
 
@@ -4282,6 +4299,10 @@ chat.openapi(completions, async (c) => {
 							requestedProvider,
 							usedModel,
 							initialRequestedModel,
+							unifiedFinishReason: getUnifiedFinishReason(
+								"upstream_error",
+								usedProvider,
+							),
 						});
 
 						try {
@@ -4324,9 +4345,48 @@ chat.openapi(completions, async (c) => {
 							},
 						};
 					} else {
-						logger.warn(
-							"Error reading stream",
+						const normalizedStreamingError = normalizeStreamingError({
+							error,
+							provider: usedProvider,
+							model: usedModel,
+							bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
+							phase: "upstream_read",
+						});
+
+						logger.error(
+							"Error reading upstream stream",
 							error instanceof Error ? error : new Error(String(error)),
+							{
+								requestId,
+								usedProvider,
+								requestedProvider,
+								usedModel,
+								initialRequestedModel,
+								upstreamStatus: res?.status ?? null,
+								upstreamStatusText: res?.statusText ?? null,
+								upstreamHeaders: res
+									? {
+											contentType: res.headers.get("content-type"),
+											contentLength: res.headers.get("content-length"),
+											transferEncoding: res.headers.get("transfer-encoding"),
+											requestId:
+												res.headers.get("x-request-id") ??
+												res.headers.get("request-id") ??
+												res.headers.get("openai-request-id"),
+										}
+									: null,
+								streamingDiagnostics: normalizedStreamingError.log.details,
+								timeToFirstToken,
+								timeToFirstReasoningToken,
+								firstTokenReceived,
+								firstReasoningTokenReceived,
+								unifiedFinishReason: getUnifiedFinishReason(
+									normalizedStreamingError.client.type === "gateway_error"
+										? "gateway_error"
+										: "upstream_error",
+									usedProvider,
+								),
+							},
 						);
 
 						// Forward the error to the client with the buffered content that caused the error
@@ -4334,14 +4394,7 @@ chat.openapi(completions, async (c) => {
 							await stream.writeSSE({
 								event: "error",
 								data: JSON.stringify({
-									error: {
-										message: `Streaming error: ${error instanceof Error ? error.message : String(error)}`,
-										type: "gateway_error",
-										param: null,
-										code: "streaming_error",
-										// Include the buffer content that caused the parsing error
-										responseText: buffer.substring(0, 5000), // Limit to 5000 chars to avoid too large error messages
-									},
+									error: normalizedStreamingError.client,
 								}),
 								id: String(eventId++),
 							});
@@ -4360,20 +4413,7 @@ chat.openapi(completions, async (c) => {
 							);
 						}
 
-						// Create structured error object for logging
-						streamingError = {
-							message: error instanceof Error ? error.message : String(error),
-							type: "streaming_error",
-							code: "streaming_error",
-							details: {
-								name: error instanceof Error ? error.name : "UnknownError",
-								stack: error instanceof Error ? error.stack : undefined,
-								timestamp: new Date().toISOString(),
-								provider: usedProvider,
-								model: usedModel,
-								bufferSnapshot: buffer ? buffer.substring(0, 5000) : undefined,
-							},
-						};
+						streamingError = normalizedStreamingError.log;
 					}
 				} finally {
 					// Clean up the reader to prevent file descriptor leaks
@@ -4489,6 +4529,10 @@ chat.openapi(completions, async (c) => {
 							completionTokens,
 							totalTokens,
 							reasoningTokens,
+							unifiedFinishReason: getUnifiedFinishReason(
+								"upstream_error",
+								usedProvider,
+							),
 						});
 						const errorMessage =
 							"Response finished successfully but returned no content or tool calls";
@@ -5211,6 +5255,10 @@ chat.openapi(completions, async (c) => {
 				requestedProvider,
 				usedModel,
 				initialRequestedModel,
+				unifiedFinishReason: getUnifiedFinishReason(
+					"upstream_error",
+					usedProvider,
+				),
 			});
 
 			// Log the error in the database
@@ -5507,6 +5555,10 @@ chat.openapi(completions, async (c) => {
 						usedModel,
 						status: res.status,
 						cause: bodyErrorCause,
+						unifiedFinishReason: getUnifiedFinishReason(
+							"upstream_error",
+							usedProvider,
+						),
 					});
 
 					const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
@@ -5618,6 +5670,10 @@ chat.openapi(completions, async (c) => {
 					organizationId: project.organizationId,
 					projectId: apiKey.projectId,
 					apiKeyId: apiKey.id,
+					unifiedFinishReason: getUnifiedFinishReason(
+						finishReason,
+						usedProvider,
+					),
 				});
 			}
 
@@ -5885,6 +5941,10 @@ chat.openapi(completions, async (c) => {
 				usedModel,
 				initialRequestedModel,
 				cause: bodyReadCause,
+				unifiedFinishReason: getUnifiedFinishReason(
+					"upstream_error",
+					usedProvider,
+				),
 			});
 
 			const bodyTimeoutPluginIds = plugins?.map((p) => p.id) ?? [];
