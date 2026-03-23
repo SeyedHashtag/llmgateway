@@ -743,6 +743,13 @@
       "when": 1774200015446,
       "tag": "1774200015_hot_kingpin",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "8",
+      "when": 1774285728875,
+      "tag": "1774285728_bored_bullseye",
+      "breakpoints": true
     }
   ]
 }

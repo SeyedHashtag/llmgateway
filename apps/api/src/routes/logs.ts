@@ -13,6 +13,7 @@ import {
 	errorDetails,
 	gt,
 	gte,
+	type InferSelectModel,
 	inArray,
 	lt,
 	lte,
@@ -23,10 +24,29 @@ import {
 	toolResults,
 	tools,
 } from "@llmgateway/db";
+import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const logs = new OpenAPIHono<ServerTypes>();
+
+type LogRecord = InferSelectModel<typeof tables.log>;
+
+async function enrichLogsWithVideoContentUrls<T extends LogRecord>(
+	logEntries: T[],
+): Promise<T[]> {
+	const hasVideoLogState = (log: T) =>
+		log.videoOutputCost !== null ||
+		log.videoDownloadCount > 0 ||
+		log.lastVideoDownloadedAt !== null;
+
+	return logEntries.map((log) =>
+		hasVideoLogState(log) &&
+		(log.content !== null || (log.videoOutputCost ?? 0) > 0)
+			? { ...log, content: buildSignedGatewayVideoLogContentUrl(log.id) }
+			: log,
+	);
+}
 
 // Use the log schema directly from the database
 // Using z.object directly instead of createSelectSchema due to compatibility issues
@@ -70,10 +90,15 @@ const logSchema = z.object({
 	inputCost: z.number().nullable(),
 	outputCost: z.number().nullable(),
 	requestCost: z.number().nullable(),
+	cachedInputCost: z.number().nullable().optional(),
+	webSearchCost: z.number().nullable().optional(),
 	imageInputTokens: z.string().nullable(),
 	imageOutputTokens: z.string().nullable(),
 	imageInputCost: z.number().nullable(),
 	imageOutputCost: z.number().nullable(),
+	videoOutputCost: z.number().nullable(),
+	videoDownloadCount: z.number().nullable(),
+	lastVideoDownloadedAt: z.date().nullable(),
 	estimatedCost: z.boolean().nullable(),
 	canceled: z.boolean().nullable(),
 	streamed: z.boolean().nullable(),
@@ -551,7 +576,7 @@ logs.openapi(get, async (c) => {
 	}
 
 	return c.json({
-		logs: paginatedLogs,
+		logs: await enrichLogsWithVideoContentUrls(paginatedLogs),
 		pagination: {
 			nextCursor,
 			hasMore,
