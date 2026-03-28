@@ -40,6 +40,8 @@ interface OpenAIModerationRequest {
 interface OpenAIModerationResult {
 	flagged?: boolean;
 	categories?: Record<string, boolean>;
+	category_scores?: Record<string, number>;
+	category_applied_input_types?: Record<string, string[]>;
 }
 
 interface OpenAIModerationResponse {
@@ -63,6 +65,7 @@ interface OpenAIContentFilterRequestResult {
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
 const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
+const OPENAI_MODERATION_SCORE_THRESHOLD = 0.8;
 
 function buildTextSummary(message: BaseMessage): string | null {
 	const segments: string[] = [];
@@ -195,14 +198,24 @@ function parseModerationResponse(
 	return responseJson as OpenAIModerationResponse;
 }
 
+function getMatchedCategoryScores(result: OpenAIModerationResult): string[] {
+	return Object.entries(result.category_scores ?? {})
+		.filter(([, score]) => score > OPENAI_MODERATION_SCORE_THRESHOLD)
+		.map(([category]) => category);
+}
+
+function isOpenAIModerationResultFlagged(
+	result: OpenAIModerationResult,
+): boolean {
+	return getMatchedCategoryScores(result).length > 0;
+}
+
 function getFlaggedCategories(results: OpenAIModerationResult[]): string[] {
 	const categories = new Set<string>();
 
 	for (const result of results) {
-		for (const [category, flagged] of Object.entries(result.categories ?? {})) {
-			if (flagged) {
-				categories.add(category);
-			}
+		for (const category of getMatchedCategoryScores(result)) {
+			categories.add(category);
 		}
 	}
 
@@ -340,8 +353,8 @@ async function runOpenAIContentFilterRequest(
 	return {
 		success: true,
 		response: {
-			flagged: (moderationResponse.results ?? []).some(
-				(result) => result.flagged === true,
+			flagged: (moderationResponse.results ?? []).some((result) =>
+				isOpenAIModerationResultFlagged(result),
 			),
 			model: moderationResponse.model ?? OPENAI_MODERATION_MODEL,
 			upstreamRequestId,

@@ -182,7 +182,13 @@ describe("checkOpenAIContentFilter", () => {
 					JSON.stringify({
 						id: "modr-text",
 						model: "omni-moderation-latest",
-						results: [{ flagged: false, categories: {} }],
+						results: [
+							{
+								flagged: false,
+								categories: {},
+								category_scores: {},
+							},
+						],
 					}),
 					{
 						status: 200,
@@ -204,6 +210,10 @@ describe("checkOpenAIContentFilter", () => {
 							flagged: imageUrl === "https://example.com/dog.png",
 							categories: {
 								violence: imageUrl === "https://example.com/dog.png",
+							},
+							category_scores: {
+								violence:
+									imageUrl === "https://example.com/dog.png" ? 0.95 : 0.2,
 							},
 						},
 					],
@@ -286,5 +296,105 @@ describe("checkOpenAIContentFilter", () => {
 		expect(result.upstreamRequestId).toBe("req-dog");
 		expect(result.results).toHaveLength(3);
 		expect(result.results.some((entry) => entry.flagged)).toBe(true);
+	});
+
+	it("ignores upstream flagged when category scores stay at or below 0.8", async () => {
+		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: "modr-threshold-low",
+					model: "omni-moderation-latest",
+					results: [
+						{
+							flagged: true,
+							categories: {
+								violence: true,
+								"violence/graphic": true,
+							},
+							category_scores: {
+								violence: 0.8,
+								"violence/graphic": 0.79,
+							},
+						},
+					],
+				}),
+				{
+					status: 200,
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": "req-low-threshold",
+					},
+				},
+			),
+		);
+
+		const result = await checkOpenAIContentFilter(
+			[
+				{
+					role: "user",
+					content: "I want to attack someone.",
+				},
+			],
+			{
+				requestId: "request-id",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "api-key-id",
+			},
+		);
+
+		expect(result.flagged).toBe(false);
+		expect(result.upstreamRequestId).toBe("req-low-threshold");
+	});
+
+	it("flags when any category score is higher than 0.8", async () => {
+		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: "modr-threshold-high",
+					model: "omni-moderation-latest",
+					results: [
+						{
+							flagged: false,
+							categories: {
+								violence: true,
+							},
+							category_scores: {
+								violence: 0.81,
+							},
+						},
+					],
+				}),
+				{
+					status: 200,
+					headers: {
+						"Content-Type": "application/json",
+						"x-request-id": "req-high-threshold",
+					},
+				},
+			),
+		);
+
+		const result = await checkOpenAIContentFilter(
+			[
+				{
+					role: "user",
+					content: "I want to attack someone.",
+				},
+			],
+			{
+				requestId: "request-id",
+				organizationId: "org-id",
+				projectId: "project-id",
+				apiKeyId: "api-key-id",
+			},
+		);
+
+		expect(result.flagged).toBe(true);
+		expect(result.upstreamRequestId).toBe("req-high-threshold");
 	});
 });
