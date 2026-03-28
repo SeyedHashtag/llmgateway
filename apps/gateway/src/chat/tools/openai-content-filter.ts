@@ -65,7 +65,43 @@ interface OpenAIContentFilterRequestResult {
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
 const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
-const OPENAI_MODERATION_SCORE_THRESHOLD = 0.8;
+const DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD = 0.8;
+
+let cachedOpenAIModerationScoreThreshold: number | null = null;
+let cachedOpenAIModerationScoreThresholdEnvValue: string | undefined;
+
+function getOpenAIModerationScoreThreshold(): number {
+	const envValue = process.env.LLM_CONTENT_FILTER_OPENAI_SCORE_THRESHOLD;
+
+	if (
+		envValue === cachedOpenAIModerationScoreThresholdEnvValue &&
+		cachedOpenAIModerationScoreThreshold !== null
+	) {
+		return cachedOpenAIModerationScoreThreshold;
+	}
+
+	cachedOpenAIModerationScoreThresholdEnvValue = envValue;
+
+	if (!envValue || envValue.trim() === "") {
+		cachedOpenAIModerationScoreThreshold =
+			DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD;
+		return cachedOpenAIModerationScoreThreshold;
+	}
+
+	const parsedThreshold = Number(envValue);
+	if (
+		!Number.isFinite(parsedThreshold) ||
+		parsedThreshold < 0 ||
+		parsedThreshold > 1
+	) {
+		cachedOpenAIModerationScoreThreshold =
+			DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD;
+		return cachedOpenAIModerationScoreThreshold;
+	}
+
+	cachedOpenAIModerationScoreThreshold = parsedThreshold;
+	return cachedOpenAIModerationScoreThreshold;
+}
 
 function buildTextSummary(message: BaseMessage): string | null {
 	const segments: string[] = [];
@@ -200,7 +236,7 @@ function parseModerationResponse(
 
 function getMatchedCategoryScores(result: OpenAIModerationResult): string[] {
 	return Object.entries(result.category_scores ?? {})
-		.filter(([, score]) => score > OPENAI_MODERATION_SCORE_THRESHOLD)
+		.filter(([, score]) => score > getOpenAIModerationScoreThreshold())
 		.map(([category]) => category);
 }
 
