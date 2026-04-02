@@ -95,6 +95,16 @@ const nextConfig: NextConfig = {
 				destination: "/legal/privacy",
 				permanent: true,
 			},
+			{
+				source: "/llms.txt",
+				destination: "https://docs.llmgateway.io/llms.txt",
+				permanent: true,
+			},
+			{
+				source: "/llms-full.txt",
+				destination: "https://docs.llmgateway.io/llms-full.txt",
+				permanent: true,
+			},
 		];
 	},
 	typescript: {
