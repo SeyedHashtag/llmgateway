@@ -297,7 +297,7 @@ export function ChatSupportLogsClient() {
 				</div>
 
 				{/* Conversation list */}
-				<ScrollArea className="flex-1">
+				<ScrollArea className="flex-1 overflow-hidden">
 					{listLoading ? (
 						<div className="flex flex-col gap-1 p-2">
 							{Array.from({ length: 8 }).map((_, i) => (

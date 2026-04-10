@@ -5717,6 +5717,48 @@ admin.openapi(getChatSupportConversations, async (c) => {
 	});
 });
 
+const getChatSupportReadStatuses = createRoute({
+	method: "get",
+	path: "/chat-support-logs/read-statuses",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						readStatuses: z.record(z.string(), z.number()),
+					}),
+				},
+			},
+			description:
+				"Map of conversationId to lastReadMessageCount for the current admin.",
+		},
+	},
+});
+
+admin.openapi(getChatSupportReadStatuses, async (c) => {
+	const user = c.get("user");
+
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const rt = tables.chatSupportReadStatus;
+	const rows = await db
+		.select({
+			conversationId: rt.conversationId,
+			lastReadMessageCount: rt.lastReadMessageCount,
+		})
+		.from(rt)
+		.where(eq(rt.adminUserId, user.id));
+
+	const readStatuses: Record<string, number> = {};
+	for (const row of rows) {
+		readStatuses[row.conversationId] = row.lastReadMessageCount;
+	}
+
+	return c.json({ readStatuses });
+});
+
 const getChatSupportConversation = createRoute({
 	method: "get",
 	path: "/chat-support-logs/{id}",
@@ -5978,48 +6020,6 @@ admin.openapi(markChatSupportRead, async (c) => {
 	}
 
 	return c.json({ success: true });
-});
-
-const getChatSupportReadStatuses = createRoute({
-	method: "get",
-	path: "/chat-support-logs/read-statuses",
-	responses: {
-		200: {
-			content: {
-				"application/json": {
-					schema: z.object({
-						readStatuses: z.record(z.string(), z.number()),
-					}),
-				},
-			},
-			description:
-				"Map of conversationId to lastReadMessageCount for the current admin.",
-		},
-	},
-});
-
-admin.openapi(getChatSupportReadStatuses, async (c) => {
-	const user = c.get("user");
-
-	if (!user) {
-		throw new HTTPException(401, { message: "Unauthorized" });
-	}
-
-	const rt = tables.chatSupportReadStatus;
-	const rows = await db
-		.select({
-			conversationId: rt.conversationId,
-			lastReadMessageCount: rt.lastReadMessageCount,
-		})
-		.from(rt)
-		.where(eq(rt.adminUserId, user.id));
-
-	const readStatuses: Record<string, number> = {};
-	for (const row of rows) {
-		readStatuses[row.conversationId] = row.lastReadMessageCount;
-	}
-
-	return c.json({ readStatuses });
 });
 
 export default admin;
