@@ -35,6 +35,7 @@ import {
 } from "@llmgateway/shared/components";
 
 import type { paths } from "@/lib/api/v1";
+import type { LogsData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
 import type { ComponentType, SVGProps } from "react";
 
@@ -413,17 +414,13 @@ function AgentDetail({
 	orgId,
 	projectId,
 	onBack,
-	hasNextPage,
 	isFetchingNextPage,
-	onLoadMore,
 }: {
 	stats: AgentStats;
 	orgId: string;
 	projectId: string;
 	onBack: () => void;
-	hasNextPage: boolean;
 	isFetchingNextPage: boolean;
-	onLoadMore: () => void;
 }) {
 	const Icon = stats.agent.icon;
 	const sessions = useMemo(
@@ -479,16 +476,10 @@ function AgentDetail({
 					))
 				)}
 
-				{hasNextPage && (
-					<div className="flex justify-center pt-2">
-						<Button
-							onClick={onLoadMore}
-							disabled={isFetchingNextPage}
-							variant="outline"
-							size="sm"
-						>
-							{isFetchingNextPage ? "Loading more..." : "Load more sessions"}
-						</Button>
+				{isFetchingNextPage && (
+					<div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+						<div className="h-4 w-4 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-muted-foreground/70" />
+						<span>Loading more sessions...</span>
 					</div>
 				)}
 			</div>
@@ -532,9 +523,11 @@ function EmptyState() {
 export function AgentsView({
 	projectId,
 	orgId,
+	initialData,
 }: {
 	projectId: string;
 	orgId: string;
+	initialData?: LogsData;
 }) {
 	const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
 	const searchParams = useSearchParams();
@@ -571,6 +564,12 @@ export function AgentsView({
 			enabled: !!projectId,
 			refetchOnWindowFocus: false,
 			staleTime: 5 * 60 * 1000,
+			initialData: initialData
+				? {
+						pages: [initialData],
+						pageParams: [undefined],
+					}
+				: undefined,
 			initialPageParam: undefined,
 			getNextPageParam: (lastPage) => {
 				return lastPage?.pagination?.hasMore
@@ -634,9 +633,7 @@ export function AgentsView({
 					orgId={orgId}
 					projectId={projectId}
 					onBack={() => setSelectedAgentId(null)}
-					hasNextPage={hasNextPage ?? false}
 					isFetchingNextPage={isFetchingNextPage}
-					onLoadMore={() => fetchNextPage()}
 				/>
 			) : agentStats.length === 0 ? (
 				<EmptyState />
@@ -653,14 +650,13 @@ export function AgentsView({
 					</div>
 
 					{hasNextPage && (
-						<div className="flex justify-center pt-2">
+						<div className="flex justify-center pt-4">
 							<Button
 								onClick={() => fetchNextPage()}
 								disabled={isFetchingNextPage}
 								variant="outline"
-								size="sm"
 							>
-								{isFetchingNextPage ? "Loading more..." : "Load more data"}
+								{isFetchingNextPage ? "Loading more..." : "Load More"}
 							</Button>
 						</div>
 					)}
