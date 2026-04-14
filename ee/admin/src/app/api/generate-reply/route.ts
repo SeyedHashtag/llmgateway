@@ -147,7 +147,7 @@ export async function POST(req: Request) {
 
 	try {
 		const leadResearch = await generateText({
-			model: llmgateway("auto"),
+			model: llmgateway("claude-haiku-4-5"),
 			system: `You are a lead research agent. Given a person's name or email address, research them thoroughly using your built-in web search capabilities.
 
 Produce a structured summary with the following sections:
