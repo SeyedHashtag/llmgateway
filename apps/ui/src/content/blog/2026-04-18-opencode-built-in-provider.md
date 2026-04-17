@@ -8,8 +8,8 @@ categories: ["Integrations"]
 image:
   src: "/blog/opencode-built-in-provider.png"
   alt: "LLM Gateway Is Now a Built-in Provider in OpenCode"
-  width: 1024
-  height: 1024
+  width: 1376
+  height: 768
 ---
 
 OpenCode now ships LLM Gateway as a built-in provider. No config files. No environment variables. No npm adapters.
