@@ -3667,6 +3667,9 @@ const modelDetailSchema = z.object({
 		status: z.string(),
 		logsCount: z.number(),
 		errorsCount: z.number(),
+		clientErrorsCount: z.number(),
+		gatewayErrorsCount: z.number(),
+		upstreamErrorsCount: z.number(),
 		cachedCount: z.number(),
 		avgTimeToFirstToken: z.number().nullable(),
 		providerCount: z.number(),
@@ -3766,6 +3769,9 @@ admin.openapi(getModelDetail, async (c) => {
 				status: model.status,
 				logsCount: totalLogs,
 				errorsCount: totalErrors,
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
 				cachedCount: totalCached,
 				avgTimeToFirstToken: null,
 				providerCount: statsRows.length,
@@ -3784,7 +3790,7 @@ admin.openapi(getModelDetail, async (c) => {
 	}
 
 	// Global view
-	const [mappings, statsRows] = await Promise.all([
+	const [mappings, statsRows, aggRow] = await Promise.all([
 		db
 			.select({
 				providerId: tables.modelProviderMapping.providerId,
@@ -3797,15 +3803,27 @@ admin.openapi(getModelDetail, async (c) => {
 			.select({
 				providerId: modelProviderMappingHistory.providerId,
 				logsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.logsCount})`.as(
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
 						"logs_count",
 					),
 				errorsCount:
-					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
 						"errors_count",
 					),
+				clientErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+						"upstream_errors_count",
+					),
 				cachedCount:
-					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
 						"cached_count",
 					),
 				avgTtft:
@@ -3821,6 +3839,45 @@ admin.openapi(getModelDetail, async (c) => {
 				),
 			)
 			.groupBy(modelProviderMappingHistory.providerId),
+		db
+			.select({
+				logsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
+						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+						"upstream_errors_count",
+					),
+				cachedCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
+						"cached_count",
+					),
+				avgTtft: sql<
+					number | null
+				>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+					"avg_ttft",
+				),
+			})
+			.from(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.modelId, modelId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				),
+			),
 	]);
 
 	const providerIds = mappings.map((m) => m.providerId);
@@ -3857,6 +3914,9 @@ admin.openapi(getModelDetail, async (c) => {
 		};
 	});
 
+	const agg = aggRow[0];
+	const hasWindowData = Number(agg?.logsCount ?? 0) > 0;
+
 	return c.json({
 		model: {
 			id: model.id,
@@ -3865,10 +3925,27 @@ admin.openapi(getModelDetail, async (c) => {
 			free: model.free,
 			stability: model.stability,
 			status: model.status,
-			logsCount: model.logsCount,
-			errorsCount: model.errorsCount,
-			cachedCount: model.cachedCount,
-			avgTimeToFirstToken: model.avgTimeToFirstToken,
+			logsCount: hasWindowData ? Number(agg?.logsCount ?? 0) : model.logsCount,
+			errorsCount: hasWindowData
+				? Number(agg?.errorsCount ?? 0)
+				: model.errorsCount,
+			clientErrorsCount: hasWindowData
+				? Number(agg?.clientErrorsCount ?? 0)
+				: model.clientErrorsCount,
+			gatewayErrorsCount: hasWindowData
+				? Number(agg?.gatewayErrorsCount ?? 0)
+				: model.gatewayErrorsCount,
+			upstreamErrorsCount: hasWindowData
+				? Number(agg?.upstreamErrorsCount ?? 0)
+				: model.upstreamErrorsCount,
+			cachedCount: hasWindowData
+				? Number(agg?.cachedCount ?? 0)
+				: model.cachedCount,
+			avgTimeToFirstToken: hasWindowData
+				? agg?.avgTtft !== undefined && agg?.avgTtft !== null
+					? Number(agg.avgTtft)
+					: model.avgTimeToFirstToken
+				: model.avgTimeToFirstToken,
 			providerCount: providerStats.length,
 			updatedAt: model.updatedAt.toISOString(),
 		},
@@ -4036,6 +4113,9 @@ const historyDataPointSchema = z.object({
 	timestamp: z.string(),
 	logsCount: z.number(),
 	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTtft: z.number().nullable(),
 	avgDuration: z.number().nullable(),
@@ -4058,6 +4138,9 @@ function mapHistoryRows(
 		minuteTimestamp: Date;
 		logsCount: number;
 		errorsCount: number;
+		clientErrorsCount?: number;
+		gatewayErrorsCount?: number;
+		upstreamErrorsCount?: number;
 		cachedCount: number;
 		totalDuration: number;
 		totalTimeToFirstToken: number;
@@ -4095,6 +4178,9 @@ function mapHistoryRows(
 			timestamp: r.minuteTimestamp.toISOString(),
 			logsCount,
 			errorsCount,
+			clientErrorsCount: Number(r.clientErrorsCount ?? 0),
+			gatewayErrorsCount: Number(r.gatewayErrorsCount ?? 0),
+			upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 			cachedCount,
 			avgTtft:
 				nonCached > 0 ? Math.round(totalTimeToFirstToken / nonCached) : null,
@@ -4144,6 +4230,18 @@ admin.openapi(getProviderHistory, async (c) => {
 				errorsCount:
 					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
 						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.clientErrorsCount})`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.gatewayErrorsCount})`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.upstreamErrorsCount})`.as(
+						"upstream_errors_count",
 					),
 				cachedCount:
 					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
@@ -4262,6 +4360,9 @@ admin.openapi(getModelHistory, async (c) => {
 				timestamp: r.hourTimestamp.toISOString(),
 				logsCount: Number(r.logsCount),
 				errorsCount: Number(r.errorsCount),
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
 				cachedCount: Number(r.cachedCount),
 				avgTtft: null,
 				avgDuration: null,
@@ -4278,6 +4379,17 @@ admin.openapi(getModelHistory, async (c) => {
 			errorsCount: sql<number>`SUM(${modelHistory.errorsCount})`.as(
 				"errors_count",
 			),
+			clientErrorsCount: sql<number>`SUM(${modelHistory.clientErrorsCount})`.as(
+				"client_errors_count",
+			),
+			gatewayErrorsCount:
+				sql<number>`SUM(${modelHistory.gatewayErrorsCount})`.as(
+					"gateway_errors_count",
+				),
+			upstreamErrorsCount:
+				sql<number>`SUM(${modelHistory.upstreamErrorsCount})`.as(
+					"upstream_errors_count",
+				),
 			cachedCount: sql<number>`SUM(${modelHistory.cachedCount})`.as(
 				"cached_count",
 			),
@@ -4375,6 +4487,9 @@ admin.openapi(getMappingHistory, async (c) => {
 				timestamp: r.hourTimestamp.toISOString(),
 				logsCount: Number(r.logsCount),
 				errorsCount: Number(r.errorsCount),
+				clientErrorsCount: 0,
+				gatewayErrorsCount: 0,
+				upstreamErrorsCount: 0,
 				cachedCount: Number(r.cachedCount),
 				avgTtft: null,
 				avgDuration: null,
@@ -4384,7 +4499,7 @@ admin.openapi(getMappingHistory, async (c) => {
 		});
 	}
 
-	const [minuteRows, hourlyRows] = await Promise.all([
+	const [minuteRows, hourlyRows, hourlyErrorRows] = await Promise.all([
 		db
 			.select({
 				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
@@ -4395,6 +4510,18 @@ admin.openapi(getMappingHistory, async (c) => {
 				errorsCount:
 					sql<number>`SUM(${modelProviderMappingHistory.errorsCount})`.as(
 						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.clientErrorsCount})`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.gatewayErrorsCount})`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`SUM(${modelProviderMappingHistory.upstreamErrorsCount})`.as(
+						"upstream_errors_count",
 					),
 				cachedCount:
 					sql<number>`SUM(${modelProviderMappingHistory.cachedCount})`.as(
@@ -4455,6 +4582,21 @@ admin.openapi(getMappingHistory, async (c) => {
 			)
 			.groupBy(projectHourlyModelStats.hourTimestamp)
 			.orderBy(asc(projectHourlyModelStats.hourTimestamp)),
+		db
+			.select({
+				minuteTimestamp: modelProviderMappingHistory.minuteTimestamp,
+				clientErrorsCount: modelProviderMappingHistory.clientErrorsCount,
+				gatewayErrorsCount: modelProviderMappingHistory.gatewayErrorsCount,
+				upstreamErrorsCount: modelProviderMappingHistory.upstreamErrorsCount,
+			})
+			.from(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.providerId, providerId),
+					eq(modelProviderMappingHistory.modelId, modelId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				),
+			),
 	]);
 
 	const hasMinuteData = minuteRows.some((r) => Number(r.logsCount) > 0);
@@ -4538,16 +4680,39 @@ admin.openapi(getMappingHistory, async (c) => {
 		}
 	}
 
+	const errorBreakdownByHour = new Map<
+		string,
+		{ client: number; gateway: number; upstream: number }
+	>();
+	for (const r of hourlyErrorRows) {
+		const hk = getHourFloor(r.minuteTimestamp);
+		const existing = errorBreakdownByHour.get(hk);
+		const client = Number(r.clientErrorsCount);
+		const gateway = Number(r.gatewayErrorsCount);
+		const upstream = Number(r.upstreamErrorsCount);
+		if (existing) {
+			existing.client += client;
+			existing.gateway += gateway;
+			existing.upstream += upstream;
+		} else {
+			errorBreakdownByHour.set(hk, { client, gateway, upstream });
+		}
+	}
+
 	const data = hourlyRows.map((r) => {
 		const logsCount = Number(r.logsCount);
 		const errorsCount = Number(r.errorsCount);
 		const cachedCount = Number(r.cachedCount);
 		const hk = new Date(r.hourTimestamp).toISOString();
 		const latency = latencyByHour.get(hk);
+		const errorBreakdown = errorBreakdownByHour.get(hk);
 		return {
 			timestamp: hk,
 			logsCount,
 			errorsCount,
+			clientErrorsCount: errorBreakdown?.client ?? 0,
+			gatewayErrorsCount: errorBreakdown?.gateway ?? 0,
+			upstreamErrorsCount: errorBreakdown?.upstream ?? 0,
 			cachedCount,
 			avgTtft:
 				latency && latency.nonCached > 0
@@ -4563,6 +4728,424 @@ admin.openapi(getMappingHistory, async (c) => {
 	});
 
 	return c.json({ data });
+});
+
+// Provider detail – aggregated stats + per-model breakdown for the window
+const providerModelStatsSchema = z.object({
+	modelId: z.string(),
+	modelName: z.string(),
+	mappingId: z.string(),
+	region: z.string().nullable(),
+	status: z.string(),
+	logsCount: z.number(),
+	errorsCount: z.number(),
+	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
+	cachedCount: z.number(),
+	avgTimeToFirstToken: z.number().nullable(),
+	updatedAt: z.string(),
+});
+
+const providerDetailSchema = z.object({
+	provider: z.object({
+		id: z.string(),
+		name: z.string(),
+		color: z.string().nullable(),
+		description: z.string(),
+		website: z.string().nullable(),
+		status: z.string(),
+		logsCount: z.number(),
+		errorsCount: z.number(),
+		clientErrorsCount: z.number(),
+		gatewayErrorsCount: z.number(),
+		upstreamErrorsCount: z.number(),
+		cachedCount: z.number(),
+		avgTimeToFirstToken: z.number().nullable(),
+		modelCount: z.number(),
+		updatedAt: z.string(),
+	}),
+	models: z.array(providerModelStatsSchema),
+});
+
+const getProviderDetail = createRoute({
+	method: "get",
+	path: "/providers/{providerId}",
+	request: {
+		params: z.object({ providerId: z.string() }),
+		query: z.object({
+			window: historyWindowSchema.default("4h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: providerDetailSchema.openapi({}) },
+			},
+			description: "Provider detail with per-model stats.",
+		},
+	},
+});
+
+admin.openapi(getProviderDetail, async (c) => {
+	const { providerId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "4h";
+	const startDate = getHistoryStartDate(window);
+
+	const providerRow = await db.query.provider.findFirst({
+		where: { id: { eq: providerId } },
+	});
+
+	if (!providerRow) {
+		throw new HTTPException(404, { message: "Provider not found" });
+	}
+
+	const [mappings, statsRows, aggRow] = await Promise.all([
+		db
+			.select({
+				id: tables.modelProviderMapping.id,
+				modelId: tables.modelProviderMapping.modelId,
+				modelName: tables.modelProviderMapping.modelName,
+				region: tables.modelProviderMapping.region,
+				status: tables.modelProviderMapping.status,
+				avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+				updatedAt: tables.modelProviderMapping.updatedAt,
+			})
+			.from(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.providerId, providerId)),
+		db
+			.select({
+				modelId: modelProviderMappingHistory.modelId,
+				logsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
+						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+						"upstream_errors_count",
+					),
+				cachedCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
+						"cached_count",
+					),
+				avgTtft: sql<
+					number | null
+				>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+					"avg_ttft",
+				),
+			})
+			.from(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.providerId, providerId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				),
+			)
+			.groupBy(modelProviderMappingHistory.modelId),
+		db
+			.select({
+				logsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+						"logs_count",
+					),
+				errorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
+						"errors_count",
+					),
+				clientErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+						"client_errors_count",
+					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+						"gateway_errors_count",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+						"upstream_errors_count",
+					),
+				cachedCount:
+					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
+						"cached_count",
+					),
+				avgTtft: sql<
+					number | null
+				>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+					"avg_ttft",
+				),
+			})
+			.from(modelProviderMappingHistory)
+			.where(
+				and(
+					eq(modelProviderMappingHistory.providerId, providerId),
+					gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+				),
+			),
+	]);
+
+	const statsByModel = new Map(statsRows.map((r) => [r.modelId, r]));
+
+	const modelsOut = mappings.map((m) => {
+		const s = statsByModel.get(m.modelId);
+		return {
+			modelId: m.modelId,
+			modelName: m.modelName,
+			mappingId: m.id,
+			region: m.region,
+			status: m.status,
+			logsCount: Number(s?.logsCount ?? 0),
+			errorsCount: Number(s?.errorsCount ?? 0),
+			clientErrorsCount: Number(s?.clientErrorsCount ?? 0),
+			gatewayErrorsCount: Number(s?.gatewayErrorsCount ?? 0),
+			upstreamErrorsCount: Number(s?.upstreamErrorsCount ?? 0),
+			cachedCount: Number(s?.cachedCount ?? 0),
+			avgTimeToFirstToken:
+				s?.avgTtft !== undefined && s?.avgTtft !== null
+					? Number(s.avgTtft)
+					: m.avgTimeToFirstToken,
+			updatedAt: m.updatedAt.toISOString(),
+		};
+	});
+
+	const agg = aggRow[0];
+	const hasWindowData = Number(agg?.logsCount ?? 0) > 0;
+
+	return c.json({
+		provider: {
+			id: providerRow.id,
+			name: providerRow.name,
+			color: providerRow.color,
+			description: providerRow.description,
+			website: providerRow.website,
+			status: providerRow.status,
+			logsCount: hasWindowData
+				? Number(agg?.logsCount ?? 0)
+				: providerRow.logsCount,
+			errorsCount: hasWindowData
+				? Number(agg?.errorsCount ?? 0)
+				: providerRow.errorsCount,
+			clientErrorsCount: hasWindowData
+				? Number(agg?.clientErrorsCount ?? 0)
+				: providerRow.clientErrorsCount,
+			gatewayErrorsCount: hasWindowData
+				? Number(agg?.gatewayErrorsCount ?? 0)
+				: providerRow.gatewayErrorsCount,
+			upstreamErrorsCount: hasWindowData
+				? Number(agg?.upstreamErrorsCount ?? 0)
+				: providerRow.upstreamErrorsCount,
+			cachedCount: hasWindowData
+				? Number(agg?.cachedCount ?? 0)
+				: providerRow.cachedCount,
+			avgTimeToFirstToken: hasWindowData
+				? agg?.avgTtft !== undefined && agg?.avgTtft !== null
+					? Number(agg.avgTtft)
+					: providerRow.avgTimeToFirstToken
+				: providerRow.avgTimeToFirstToken,
+			modelCount: mappings.length,
+			updatedAt: providerRow.updatedAt.toISOString(),
+		},
+		models: modelsOut,
+	});
+});
+
+// Mapping detail – aggregated stats for a provider/model mapping in the window
+const mappingDetailSchema = z.object({
+	mapping: z.object({
+		id: z.string(),
+		modelId: z.string(),
+		modelName: z.string(),
+		providerId: z.string(),
+		providerName: z.string(),
+		region: z.string().nullable(),
+		status: z.string(),
+		inputPrice: z.string().nullable(),
+		outputPrice: z.string().nullable(),
+		cachedInputPrice: z.string().nullable(),
+		imageInputPrice: z.string().nullable(),
+		requestPrice: z.string().nullable(),
+		contextSize: z.number().nullable(),
+		maxOutput: z.number().nullable(),
+		streaming: z.boolean(),
+		logsCount: z.number(),
+		errorsCount: z.number(),
+		clientErrorsCount: z.number(),
+		gatewayErrorsCount: z.number(),
+		upstreamErrorsCount: z.number(),
+		cachedCount: z.number(),
+		avgTimeToFirstToken: z.number().nullable(),
+		updatedAt: z.string(),
+	}),
+});
+
+const getMappingDetail = createRoute({
+	method: "get",
+	path: "/providers/{providerId}/models/{modelId}",
+	request: {
+		params: z.object({
+			providerId: z.string(),
+			modelId: z.string(),
+		}),
+		query: z.object({
+			window: historyWindowSchema.default("4h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: mappingDetailSchema.openapi({}) },
+			},
+			description: "Mapping detail with aggregated stats for the window.",
+		},
+	},
+});
+
+admin.openapi(getMappingDetail, async (c) => {
+	const { providerId, modelId } = c.req.valid("param");
+	const query = c.req.valid("query");
+	const window = query.window ?? "4h";
+	const startDate = getHistoryStartDate(window);
+
+	const mappingRow = await db
+		.select({
+			id: tables.modelProviderMapping.id,
+			modelId: tables.modelProviderMapping.modelId,
+			modelName: tables.modelProviderMapping.modelName,
+			providerId: tables.modelProviderMapping.providerId,
+			providerName: tables.provider.name,
+			region: tables.modelProviderMapping.region,
+			status: tables.modelProviderMapping.status,
+			inputPrice: tables.modelProviderMapping.inputPrice,
+			outputPrice: tables.modelProviderMapping.outputPrice,
+			cachedInputPrice: tables.modelProviderMapping.cachedInputPrice,
+			imageInputPrice: tables.modelProviderMapping.imageInputPrice,
+			requestPrice: tables.modelProviderMapping.requestPrice,
+			contextSize: tables.modelProviderMapping.contextSize,
+			maxOutput: tables.modelProviderMapping.maxOutput,
+			streaming: tables.modelProviderMapping.streaming,
+			logsCount: tables.modelProviderMapping.logsCount,
+			errorsCount: tables.modelProviderMapping.errorsCount,
+			clientErrorsCount: tables.modelProviderMapping.clientErrorsCount,
+			gatewayErrorsCount: tables.modelProviderMapping.gatewayErrorsCount,
+			upstreamErrorsCount: tables.modelProviderMapping.upstreamErrorsCount,
+			cachedCount: tables.modelProviderMapping.cachedCount,
+			avgTimeToFirstToken: tables.modelProviderMapping.avgTimeToFirstToken,
+			updatedAt: tables.modelProviderMapping.updatedAt,
+		})
+		.from(tables.modelProviderMapping)
+		.innerJoin(
+			tables.provider,
+			eq(tables.provider.id, tables.modelProviderMapping.providerId),
+		)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.providerId, providerId),
+				eq(tables.modelProviderMapping.modelId, modelId),
+			),
+		)
+		.limit(1);
+
+	if (mappingRow.length === 0) {
+		throw new HTTPException(404, { message: "Mapping not found" });
+	}
+
+	const m = mappingRow[0];
+
+	const [aggRow] = await db
+		.select({
+			logsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
+					"logs_count",
+				),
+			errorsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
+					"errors_count",
+				),
+			clientErrorsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
+					"client_errors_count",
+				),
+			gatewayErrorsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+					"gateway_errors_count",
+				),
+			upstreamErrorsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
+					"upstream_errors_count",
+				),
+			cachedCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.cachedCount}), 0)`.as(
+					"cached_count",
+				),
+			avgTtft: sql<
+				number | null
+			>`CASE WHEN SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount}) > 0 THEN SUM(${modelProviderMappingHistory.totalTimeToFirstToken})::float / (SUM(${modelProviderMappingHistory.logsCount}) - SUM(${modelProviderMappingHistory.cachedCount})) ELSE NULL END`.as(
+				"avg_ttft",
+			),
+		})
+		.from(modelProviderMappingHistory)
+		.where(
+			and(
+				eq(modelProviderMappingHistory.modelProviderMappingId, m.id),
+				gte(modelProviderMappingHistory.minuteTimestamp, startDate),
+			),
+		);
+
+	const hasWindowData = Number(aggRow?.logsCount ?? 0) > 0;
+
+	return c.json({
+		mapping: {
+			id: m.id,
+			modelId: m.modelId,
+			modelName: m.modelName,
+			providerId: m.providerId,
+			providerName: m.providerName,
+			region: m.region,
+			status: m.status,
+			inputPrice: m.inputPrice,
+			outputPrice: m.outputPrice,
+			cachedInputPrice: m.cachedInputPrice,
+			imageInputPrice: m.imageInputPrice,
+			requestPrice: m.requestPrice,
+			contextSize: m.contextSize,
+			maxOutput: m.maxOutput,
+			streaming: m.streaming,
+			logsCount: hasWindowData ? Number(aggRow?.logsCount ?? 0) : m.logsCount,
+			errorsCount: hasWindowData
+				? Number(aggRow?.errorsCount ?? 0)
+				: m.errorsCount,
+			clientErrorsCount: hasWindowData
+				? Number(aggRow?.clientErrorsCount ?? 0)
+				: m.clientErrorsCount,
+			gatewayErrorsCount: hasWindowData
+				? Number(aggRow?.gatewayErrorsCount ?? 0)
+				: m.gatewayErrorsCount,
+			upstreamErrorsCount: hasWindowData
+				? Number(aggRow?.upstreamErrorsCount ?? 0)
+				: m.upstreamErrorsCount,
+			cachedCount: hasWindowData
+				? Number(aggRow?.cachedCount ?? 0)
+				: m.cachedCount,
+			avgTimeToFirstToken: hasWindowData
+				? aggRow?.avgTtft !== undefined && aggRow?.avgTtft !== null
+					? Number(aggRow.avgTtft)
+					: m.avgTimeToFirstToken
+				: m.avgTimeToFirstToken,
+			updatedAt: m.updatedAt.toISOString(),
+		},
+	});
 });
 
 // --- Cost by model endpoints ---

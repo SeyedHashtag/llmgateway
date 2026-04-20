@@ -5,15 +5,17 @@ import { useCallback, useEffect, useState } from "react";
 
 import { DetailStatCards } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
-import { ModelProviderCharts } from "@/components/model-provider-charts";
+import { ProviderModelsTable } from "@/components/provider-models-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getModelDetail, getModelHistory } from "@/lib/admin-history";
+import { getProviderDetail, getProviderHistory } from "@/lib/admin-history";
+
+import { getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
-import type { ModelDetailResponse, ModelProviderStats } from "@/lib/types";
+import type { ProviderDetailResponse, ProviderModelStats } from "@/lib/types";
 
-type ModelInfo = ModelDetailResponse["model"];
+type ProviderInfo = ProviderDetailResponse["provider"];
 
 const validWindows = new Set<HistoryWindow>(windowOptions.map((o) => o.value));
 
@@ -24,71 +26,64 @@ function parseHistoryWindow(value: string | null): HistoryWindow {
 	return "24h";
 }
 
-export function ModelDetailClient({
-	modelId,
-	allTimeStats,
-	providers: initialProviders,
+export function ProviderDetailClient({
+	providerId,
+	providerInfo,
+	models: initialModels,
 }: {
-	modelId: string;
-	allTimeStats: ModelInfo;
-	providers: ModelProviderStats[];
+	providerId: string;
+	providerInfo: ProviderInfo;
+	models: ProviderModelStats[];
 }) {
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const pathname = usePathname();
 	const window = parseHistoryWindow(searchParams.get("window"));
-	const [loading, setLoading] = useState(true);
-	const [info, setInfo] = useState<ModelInfo>(allTimeStats);
-	const [providers, setProviders] =
-		useState<ModelProviderStats[]>(initialProviders);
+	const [loading, setLoading] = useState(false);
+	const [info, setInfo] = useState<ProviderInfo>(providerInfo);
+	const [models, setModels] = useState<ProviderModelStats[]>(initialModels);
 
-	const loadStats = useCallback(
+	const loadDetail = useCallback(
 		async (w: HistoryWindow) => {
 			setLoading(true);
 			try {
-				const detailData = await getModelDetail(modelId, w);
-				if (detailData) {
-					setInfo(detailData.model);
-					setProviders(detailData.providers);
+				const data = await getProviderDetail(providerId, w);
+				if (data) {
+					setInfo(data.provider);
+					setModels(data.models);
 				}
 			} finally {
 				setLoading(false);
 			}
 		},
-		[modelId],
+		[providerId],
 	);
 
 	useEffect(() => {
-		void loadStats(window);
-	}, [loadStats, window]);
+		void loadDetail(window);
+	}, [loadDetail, window]);
 
 	const fetchHistory = useCallback(
 		async (w: HistoryWindow) => {
-			return await getModelHistory(modelId, w);
+			return await getProviderHistory(providerId, w);
 		},
-		[modelId],
+		[providerId],
 	);
 
-	const displayName =
-		allTimeStats.name !== allTimeStats.id ? allTimeStats.name : allTimeStats.id;
+	const ProviderIcon = getProviderIcon(providerId);
 
 	return (
 		<>
-			<header>
-				<h1 className="text-3xl font-semibold tracking-tight">{displayName}</h1>
-				{allTimeStats.name !== allTimeStats.id && (
-					<p className="mt-1 text-sm text-muted-foreground">
-						{allTimeStats.id}
-					</p>
-				)}
-				<div className="mt-3 flex flex-wrap items-center gap-2">
-					<Badge variant="outline">{allTimeStats.family}</Badge>
-					<Badge
-						variant={allTimeStats.status === "active" ? "secondary" : "outline"}
-					>
-						{allTimeStats.status}
-					</Badge>
-					{allTimeStats.free && <Badge variant="default">Free</Badge>}
+			<header className="flex items-start gap-3">
+				<ProviderIcon className="mt-1 h-8 w-8 shrink-0 dark:text-white" />
+				<div>
+					<h1 className="text-3xl font-semibold tracking-tight">{info.name}</h1>
+					<p className="mt-1 text-sm text-muted-foreground">{info.id}</p>
+					<div className="mt-3 flex flex-wrap items-center gap-2">
+						<Badge variant={info.status === "active" ? "secondary" : "outline"}>
+							{info.status}
+						</Badge>
+					</div>
 				</div>
 			</header>
 
@@ -116,8 +111,8 @@ export function ModelDetailClient({
 
 			<section className="space-y-4">
 				<HistoryChart
-					title={`${displayName} — History`}
-					description="Aggregated across all providers. Request volume, errors, latency, and tokens over time"
+					title={`${info.name} — History`}
+					description="Request volume, errors, latency, and tokens over time"
 					fetchData={fetchHistory}
 					externalWindow={window}
 				/>
@@ -125,16 +120,14 @@ export function ModelDetailClient({
 
 			<section className="space-y-4">
 				<h2 className="text-xl font-semibold">
-					Per-Provider History{" "}
+					Models{" "}
 					<span className="text-sm font-normal text-muted-foreground">
-						({providers.length} provider{providers.length !== 1 ? "s" : ""})
+						({models.length})
 					</span>
 				</h2>
-				<ModelProviderCharts
-					modelId={modelId}
-					providers={providers}
-					window={window}
-				/>
+				<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
+					<ProviderModelsTable providerId={providerId} models={models} />
+				</div>
 			</section>
 		</>
 	);
