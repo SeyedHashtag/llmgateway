@@ -140,13 +140,7 @@ function ProviderRow({
 					<div className="flex items-center gap-2">
 						<ProviderIcon className="h-5 w-5 shrink-0 dark:text-white" />
 						<div>
-							<Link
-								href={`/providers/${encodeURIComponent(provider.id)}`}
-								className="font-medium hover:underline"
-								onClick={(e) => e.stopPropagation()}
-							>
-								{provider.name}
-							</Link>
+							<span className="font-medium">{provider.name}</span>
 							<p className="text-xs text-muted-foreground">{provider.id}</p>
 						</div>
 					</div>

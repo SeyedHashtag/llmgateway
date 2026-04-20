@@ -153,20 +153,14 @@ function MappingRow({
 							<p className="text-xs text-muted-foreground">
 								{mapping.providerId}
 							</p>
-							<Link
-								href={`/providers/${encodeURIComponent(mapping.providerId)}`}
-								className="font-medium hover:underline"
-								onClick={(e) => e.stopPropagation()}
-							>
-								{mapping.providerName}
-							</Link>
+							<span className="font-medium">{mapping.providerName}</span>
 						</div>
 					</div>
 				</TableCell>
 				<TableCell>
 					<div>
 						<Link
-							href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}`}
+							href={`/models/${encodeURIComponent(mapping.modelId)}`}
 							className="font-medium hover:underline"
 							onClick={(e) => e.stopPropagation()}
 						>
@@ -251,7 +245,7 @@ function MappingRow({
 						id={`mapping-history-${mapping.providerId}-${mapping.modelId}`}
 					>
 						<HistoryChart
-							title={`${mapping.providerId}/${mapping.modelId} — History`}
+							title={`${mapping.providerName} / ${mapping.modelName !== mapping.modelId ? mapping.modelName : mapping.modelId} — History`}
 							description="Request volume, errors, latency, and tokens over time"
 							fetchData={fetchData}
 							externalWindow={externalWindow}
