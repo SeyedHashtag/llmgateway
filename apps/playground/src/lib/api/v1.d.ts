@@ -5084,7 +5084,7 @@ export interface paths {
                                 currentCount: number;
                                 maxKeys: number;
                                 /** @enum {string} */
-                                plan: "free" | "pro";
+                                plan: "free" | "pro" | "enterprise";
                             };
                             /** @enum {string} */
                             userRole: "owner" | "admin" | "developer";
