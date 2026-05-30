@@ -166,6 +166,9 @@ importers:
       '@llmgateway/audit':
         specifier: workspace:*
         version: link:../../ee/audit
+      '@llmgateway/cache':
+        specifier: workspace:*
+        version: link:../../packages/cache
       '@llmgateway/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -1350,6 +1353,9 @@ importers:
       '@llmgateway/models':
         specifier: workspace:*
         version: link:../models
+      '@llmgateway/shared':
+        specifier: workspace:*
+        version: link:../shared
       decimal.js:
         specifier: 10.5.0
         version: 10.5.0
