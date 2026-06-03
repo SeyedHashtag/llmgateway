@@ -741,6 +741,7 @@ export async function prepareRequestBody(
 	prompt_cache_key?: string,
 	prompt_cache_retention?: PromptCacheRetention,
 	providerCacheControlEnabled = true,
+	n?: number,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 
@@ -1446,6 +1447,9 @@ export async function prepareRequestBody(
 				}
 				if (reasoning_effort !== undefined) {
 					requestBody.reasoning_effort = reasoning_effort;
+				}
+				if (n !== undefined && n > 1) {
+					requestBody.n = n;
 				}
 			}
 			break;

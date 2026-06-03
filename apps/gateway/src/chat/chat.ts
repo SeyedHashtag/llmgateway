@@ -456,6 +456,7 @@ function filterEligibleModelProviders(
 		hasDocuments: boolean;
 		maxTokens?: number;
 		reasoningEffort?: string;
+		n?: number;
 	},
 ): ProviderModelMapping[] {
 	return availableModelProviders.filter((provider) => {
@@ -474,6 +475,17 @@ function filterEligibleModelProviders(
 		}
 
 		if (options.webSearchTool && provider.webSearch !== true) {
+			return false;
+		}
+
+		// Exclude mappings that can't natively serve n > 1 so routing skips
+		// over them instead of selecting one and failing the post-selection
+		// supportsN guard. The post-guard stays as a safety net.
+		if (
+			options.n !== undefined &&
+			options.n > 1 &&
+			provider.supportsN !== true
+		) {
 			return false;
 		}
 
@@ -1156,6 +1168,7 @@ chat.openapi(completions, async (c) => {
 		effort,
 		web_search,
 		plugins,
+		n,
 		user,
 	} = validationResult.data;
 
@@ -1249,6 +1262,32 @@ chat.openapi(completions, async (c) => {
 	// prepareRequestBody.
 	let reasoning_effort =
 		reasoning_object_effort ?? validationResult.data.reasoning_effort;
+
+	// Reject n > 1 with streaming + function tools: the streaming tool-call
+	// aggregator keys deltas only by tc.index (the tool position within a
+	// choice), so concurrent function calls across choices would collide.
+	// Native web_search tools (and the web_search: true flag) don't flow
+	// through that aggregator — they're handled upstream — so they're
+	// exempt. n > 1 with streaming text-only output is fully supported.
+	if (n !== undefined && n > 1 && stream && tools) {
+		const functionToolsCount = tools.filter(
+			(t: { type: string }) => t.type !== "web_search",
+		).length;
+		if (functionToolsCount > 0) {
+			return c.json(
+				{
+					error: {
+						message:
+							"The `n` parameter with values greater than 1 is not supported in combination with `stream: true` and function tools. Use streaming without function tools, send a non-streaming request, or call the API multiple times.",
+						type: "invalid_request_error",
+						param: "n",
+						code: "unsupported_parameter_combination",
+					},
+				},
+				400,
+			);
+		}
+	}
 
 	// Check if messages contain images for vision capability filtering
 	const hasImages = messagesContainImages(messages as BaseMessage[]);
@@ -2056,6 +2095,13 @@ chat.openapi(completions, async (c) => {
 					return false;
 				}
 
+				// Skip mappings that don't advertise supportsN when n > 1 so
+				// auto-routing doesn't pick one and trip the post-selection
+				// 400 guard. The post-guard stays as a safety net.
+				if (n !== undefined && n > 1 && provider.supportsN !== true) {
+					return false;
+				}
+
 				// Check JSON output capability if json_object or json_schema response format is requested
 				if (
 					response_format?.type === "json_object" ||
@@ -2354,6 +2400,7 @@ chat.openapi(completions, async (c) => {
 					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -2703,6 +2750,7 @@ chat.openapi(completions, async (c) => {
 						hasDocuments,
 						maxTokens: max_tokens,
 						reasoningEffort: reasoning_effort,
+						n,
 					},
 				).filter(
 					(provider) =>
@@ -2884,6 +2932,7 @@ chat.openapi(completions, async (c) => {
 					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -3150,6 +3199,7 @@ chat.openapi(completions, async (c) => {
 					hasDocuments,
 					maxTokens: max_tokens,
 					reasoningEffort: reasoning_effort,
+					n,
 				},
 			);
 
@@ -3975,6 +4025,7 @@ chat.openapi(completions, async (c) => {
 			reasoning_max_tokens,
 			prompt_cache_key,
 			prompt_cache_retention,
+			n,
 		};
 
 		if (stream) {
@@ -4013,14 +4064,18 @@ chat.openapi(completions, async (c) => {
 
 						const chunkData = JSON.parse(chunk.data);
 
-						// Extract content from chunk
-						if (chunkData.choices?.[0]?.delta?.content) {
-							fullContent += chunkData.choices[0].delta.content;
-						}
-
-						// Extract reasoning content from chunk
-						if (chunkData.choices?.[0]?.delta?.reasoning) {
-							fullReasoningContent += chunkData.choices[0].delta.reasoning;
+						// Extract content and reasoning from every choice so a cached
+						// n > 1 stream replay reconstructs the full logging buffer
+						// rather than only choice 0.
+						if (Array.isArray(chunkData.choices)) {
+							for (const choice of chunkData.choices) {
+								if (typeof choice?.delta?.content === "string") {
+									fullContent += choice.delta.content;
+								}
+								if (typeof choice?.delta?.reasoning === "string") {
+									fullReasoningContent += choice.delta.reasoning;
+								}
+							}
 						}
 
 						// Extract usage information (usually in the last chunks)
@@ -4544,6 +4599,21 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// Reject n > 1 when the resolved provider mapping does not advertise
+	// supportsN. We only forward n upstream for providers/models that bill
+	// input tokens once and accumulate output across choices natively
+	// (currently OpenAI Chat Completions models).
+	if (n !== undefined && n > 1 && finalModelInfo) {
+		const providerMapping = finalModelInfo.providers.find(
+			(p) => p.providerId === usedProvider && p.region === usedRegion,
+		);
+		if (!providerMapping?.supportsN) {
+			throw new HTTPException(400, {
+				message: `Model ${usedInternalModel} with provider ${usedProvider} does not support the n parameter for multiple choices. Send n separate requests instead.`,
+			});
+		}
+	}
+
 	// Save original parameters before provider-specific stripping for retry fallback
 	const originalRequestParams: OriginalRequestParams = {
 		temperature,
@@ -4664,6 +4734,7 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_key,
 			prompt_cache_retention,
 			providerCacheControlEnabled,
+			n,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -4866,6 +4937,7 @@ chat.openapi(completions, async (c) => {
 					providerMapping.providerId,
 					providerMapping.region,
 				),
+				n,
 				providerCacheControlEnabled,
 			},
 		);
@@ -6552,7 +6624,14 @@ chat.openapi(completions, async (c) => {
 				const streamingIsJsonResponseFormat =
 					response_format?.type === "json_object" ||
 					response_format?.type === "json_schema";
+				// Healing buffers a single content stream and replays it after
+				// repair. With n > 1 each choice has its own content stream, so
+				// the single buffer would corrupt multi-choice output. Skip
+				// healing in that case — JSON healing for multi-choice streams
+				// is deferred to a follow-up.
+				const healingDisabledByN = n !== undefined && n > 1;
 				const shouldBufferForHealing =
+					!healingDisabledByN &&
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
 						((usedProvider === "anthropic" ||
@@ -7564,11 +7643,17 @@ chat.openapi(completions, async (c) => {
 									}
 								}
 
-								// Extract finishReason from transformedData to update tracking variable
-								if (transformedData.choices?.[0]?.finish_reason) {
-									finishReason = transformedData.choices[0].finish_reason;
-									sawProviderTerminalEvent = true;
-									sentDownstreamFinishReasonChunk = true;
+								// Extract finishReason from transformedData. Iterate every
+								// choice so that n > 1 streams update tracking from whichever
+								// choice has terminated, not just index 0.
+								if (Array.isArray(transformedData.choices)) {
+									for (const choice of transformedData.choices) {
+										if (choice?.finish_reason) {
+											finishReason = choice.finish_reason;
+											sawProviderTerminalEvent = true;
+											sentDownstreamFinishReasonChunk = true;
+										}
+									}
 								}
 
 								// Extract content for logging using helper function
@@ -7746,8 +7831,14 @@ chat.openapi(completions, async (c) => {
 										}
 										break;
 									default: // OpenAI format
-										if (data.choices && data.choices[0]?.finish_reason) {
-											finishReason = data.choices[0].finish_reason;
+										// Iterate every choice so n > 1 streams capture the
+										// terminal reason from whichever index ended last.
+										if (Array.isArray(data.choices)) {
+											for (const choice of data.choices) {
+												if (choice?.finish_reason) {
+													finishReason = choice.finish_reason;
+												}
+											}
 										}
 										break;
 								}
