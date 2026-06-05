@@ -171,7 +171,7 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 				</aside>
 
 				{/* Main */}
-				<div className="space-y-8">
+				<div className="min-w-0 space-y-8">
 					{/* Stats */}
 					<div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
 						<StatCard
@@ -239,7 +239,7 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 						<section>
 							<h2 className="mb-3 text-sm font-semibold">Models</h2>
 							<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-								{profile.models.map((model, idx) => {
+								{profile.models.map((model) => {
 									const Icon = getProviderIcon(model.provider);
 									return (
 										<div
@@ -251,7 +251,7 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 												{model.id}
 											</span>
 											<span className="text-xs text-muted-foreground tabular-nums">
-												{idx + 1}
+												{model.requestCount.toLocaleString()}
 											</span>
 										</div>
 									);
