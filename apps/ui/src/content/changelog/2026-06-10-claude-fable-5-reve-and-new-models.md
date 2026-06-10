@@ -7,7 +7,7 @@ summary: "Anthropic's next-generation Claude Fable 5 lands with 1M context, Reve
 image:
   src: "/changelog/claude-fable-5-reve-and-new-models.png"
   alt: "Claude Fable 5, Reve, Grok Imagine Video and Nemotron 3 Ultra joining LLM Gateway"
-  width: 1536
+  width: 1024
   height: 1024
 ---
 

@@ -7,7 +7,7 @@ summary: "Monthly Chat subscriptions from $9, Flex and Priority service tiers, s
 image:
   src: "/changelog/chat-plans-service-tiers-product-roundup.png"
   alt: "Product roundup: chat plans, service tiers, SDK sandbox keys and more on LLM Gateway"
-  width: 1536
+  width: 1024
   height: 1024
 ---
 
