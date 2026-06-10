@@ -6,8 +6,8 @@ title: "Speech Generation + Audio Studio"
 summary: "Text-to-speech is live: nine models from ElevenLabs, OpenAI, and Gemini behind the OpenAI-compatible /v1/audio/speech endpoint, plus a new Audio Studio in the Playground to compare voices side by side."
 image:
   src: "/changelog/speech-generation-and-audio-studio.png"
-  alt: "Audio Studio in the Playground comparing speech generations across ElevenLabs, OpenAI, and Gemini models"
-  width: 1536
+  alt: "Speech generation and Audio Studio on LLM Gateway"
+  width: 1024
   height: 1024
 ---
 
