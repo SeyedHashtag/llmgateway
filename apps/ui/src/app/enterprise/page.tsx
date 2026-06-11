@@ -1,13 +1,13 @@
 import { AdminDashboardEnterprise } from "@/components/enterprise/admin-dashboard";
 import { EnterpriseCapabilities } from "@/components/enterprise/capabilities";
 import { ContactFormEnterprise } from "@/components/enterprise/contact";
-import { CostCalculator } from "@/components/enterprise/cost-calculator";
 import { FeaturesEnterprise } from "@/components/enterprise/features";
 import { HeroEnterprise } from "@/components/enterprise/hero";
 import { OpenSourceEnterprise } from "@/components/enterprise/open-source";
 import { PricingEnterprise } from "@/components/enterprise/pricing";
 import { ProductShowcase } from "@/components/enterprise/product-showcase";
 import { SecurityEnterprise } from "@/components/enterprise/security";
+import { SupportEnterprise } from "@/components/enterprise/support";
 import { TrustBarEnterprise } from "@/components/enterprise/trust-bar";
 import { UptimeVisualization } from "@/components/enterprise/uptime";
 import Footer from "@/components/landing/footer";
@@ -57,13 +57,13 @@ export default async function EnterprisePage() {
 				totalRequests={stats?.totalRequests}
 			/>
 			<TrustBarEnterprise />
+			<SecurityEnterprise />
+			<SupportEnterprise />
 			<EnterpriseCapabilities />
 			<UptimeVisualization />
 			<FeaturesEnterprise />
-			<CostCalculator />
 			<ProductShowcase />
 			<AdminDashboardEnterprise />
-			<SecurityEnterprise />
 			<Testimonials />
 			<PricingEnterprise />
 			<OpenSourceEnterprise />
